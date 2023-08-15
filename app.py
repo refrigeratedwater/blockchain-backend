@@ -8,13 +8,14 @@ import time
 
 import requests
 from flask import Flask, jsonify, redirect, render_template, request
-
+from flask_cors import CORS
+import ipfshttpclient
 from block import Block
 from blockchain import Blockchain
 from config import *
 
 app = Flask(__name__)
-
+CORS(app)
 
 class AppContext:
     def __init__(self):
@@ -22,21 +23,27 @@ class AppContext:
         self.peers = set()
         self.posts = []
 
-
 app_context = AppContext()
 
-
-@app.route('/new_transaction', methods=['POST'])
+@app.route('/add_transaction', methods=['POST'])
 def new_transaction():
-    data = request.json
-    author = data.get('author')
-    email = data.get('email')
+    author = request.form.get('author')
+    email = request.form.get('email')
     file = request.files.get('file')
+    
+    
     if not author or not email or not file:
         return 'Invalid transaction data', 400
-    tx_data = {'author': author, 'email': email, 'file': file}
+    
+    client = ipfshttpclient.connect(f'{IPFS}/http')
+    ipfs = client.add(file)
+    cid = ipfs['Hash']
+
+    tx_data = {'author': author, 'email': email, 'file': cid}
     tx_data['timestamp'] = time.time()
+
     app_context.blockchain.add_transaction(tx_data)
+
     return 'Success', 200
 
 
@@ -201,21 +208,6 @@ def index():
 
 def timestamp_to_string(epoch):
     return datetime.datetime.fromtimestamp(epoch).strftime('%H:%M')
-
-
-@app.route('/submit', methods=['POST'])
-def submit():
-    author = request.form.get('author')
-    email = request.form.get('email')
-    file = request.files.get('file')
-    post_object = {'author': author, 'email': email, 'file': file.filename}
-    new_tx_address = f'{CONNECTED_NODE_ADDRESS}/new_transaction'
-    headers = {'Content-Type': 'application/json'}
-    try:
-        requests.post(new_tx_address, json=post_object, headers=headers)
-    except requests.RequestException as e:
-        print(f'Error submitting new transaction to {new_tx_address}: {e}')
-    return redirect('/')
 
 
 if __name__ == '__main__':
