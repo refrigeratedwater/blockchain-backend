@@ -36,11 +36,11 @@ def new_transaction():
     if not author or not email or not file:
         return 'Invalid transaction data', 400
 
-    client = ipfshttpclient.connect(f'{IPFS}/http')
-    ipfs = client.add(file)
-    cid = ipfs['Hash']
+    # client = ipfshttpclient.connect(f'{IPFS}/http')
+    # ipfs = client.add(file)
+    # cid = ipfs['Hash']
 
-    tx_data = {'author': author, 'email': email, 'file': cid}
+    tx_data = {'author': author, 'email': email, 'file': file.filename}
     tx_data['timestamp'] = time.time()
 
     app_context.blockchain.add_transaction(tx_data)
@@ -121,11 +121,10 @@ def register():
 
     if node_address not in CONNECTED_NODE_ADDRESS:
         app_context.peers.add(node_address)
-        
+
     if not node_address:
         return 'Invalid data', 404
 
-    
     data = {'node_address': request.host_url}
     headers = {'Content-Type': 'application/json'}
     response = requests.post(node_address + '/register',
