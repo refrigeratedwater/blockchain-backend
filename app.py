@@ -1,5 +1,4 @@
 import atexit
-import datetime
 import json
 import os
 import signal
@@ -7,7 +6,7 @@ import sys
 import time
 
 import requests
-from flask import Flask, jsonify, redirect, render_template, request
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 import ipfshttpclient
 from block import Block
@@ -17,24 +16,26 @@ from config import *
 app = Flask(__name__)
 CORS(app)
 
+
 class AppContext:
     def __init__(self):
         self.blockchain = Blockchain()
-        self.peers = set()
+        self.peers = CONNECTED_NODE_ADDRESS
         self.posts = []
+
 
 app_context = AppContext()
 
-@app.route('/add_transaction', methods=['POST'])
+
+@app.route('/add/transaction', methods=['POST'])
 def new_transaction():
     author = request.form.get('author')
     email = request.form.get('email')
     file = request.files.get('file')
-    
-    
+
     if not author or not email or not file:
         return 'Invalid transaction data', 400
-    
+
     client = ipfshttpclient.connect(f'{IPFS}/http')
     ipfs = client.add(file)
     cid = ipfs['Hash']
@@ -100,39 +101,37 @@ else:
 @app.route('/mine', methods=['GET'])
 def mine_transactions():
     if not app_context.blockchain.mine():
-        return 'No transaction to mine'
+        return jsonify(status='failure', message='No transaction to mine')
     else:
         chain_length = len(app_context.blockchain.chain)
         consensus()
         if chain_length == len(app_context.blockchain.chain):
             announce_new_block(app_context.blockchain.last_block)
-        return f'Block #{app_context.blockchain.last_block.index} mined.'
+        return jsonify(status='success', message=f'Block #{app_context.blockchain.last_block.index} mined.', minedBlockIndex=app_context.blockchain.last_block.index)
 
 
-@app.route('/pending_tx')
+@app.route('/pending/tx', methods=['GET'])
 def get_pending():
     return jsonify(app_context.blockchain.unconfirmed_transactions)
 
 
-@app.route('/register_node', methods=['POST'])
-def register_peers():
+@app.route('/register', methods=['POST'])
+def register():
     node_address = request.get_json()['node_address']
+
+    if node_address not in CONNECTED_NODE_ADDRESS:
+        app_context.peers.add(node_address)
+        
     if not node_address:
         return 'Invalid data', 404
-    app_context.peers.add(node_address)
-    return get_chain()
 
-
-@app.route('/register_with', methods=['POST'])
-def register_with_existing_nodes():
-    node_address = request.get_json()['node_address']
-    if not node_address:
-        return 'Invalid data', 404
+    
     data = {'node_address': request.host_url}
     headers = {'Content-Type': 'application/json'}
-    response = requests.post(
-        node_address + '/register_node', json=data, headers=headers)
-    if response.status_code == 200:
+    response = requests.post(node_address + '/register',
+                             json=data, headers=headers)
+
+    if not response.status_code == 200:
         chain_dump = response.json()['chain']
         app_context.blockchain = create_chain_dump(chain_dump)
         app_context.peers.update(response.json()['peers'])
@@ -158,7 +157,7 @@ def consensus():
     return False
 
 
-@app.route('/add_block', methods=['POST'])
+@app.route('/add/block', methods=['POST'])
 def verify_and_add_block():
     block_data = request.get_json()
     block = Block(block_data['index'], block_data['transactions'],
@@ -198,16 +197,6 @@ def fetch_posts():
                 content.append(tx)
         app_context.posts = sorted(
             content, key=lambda k: k['timestamp'], reverse=True)
-
-
-@app.route('/')
-def index():
-    fetch_posts()
-    return render_template('index.html', title='Blockchain', posts=app_context.posts, node_address=CONNECTED_NODE_ADDRESS, readable_time=timestamp_to_string)
-
-
-def timestamp_to_string(epoch):
-    return datetime.datetime.fromtimestamp(epoch).strftime('%H:%M')
 
 
 if __name__ == '__main__':
