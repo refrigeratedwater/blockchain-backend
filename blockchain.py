@@ -1,6 +1,8 @@
 import time
-
 import requests
+
+from urllib.parse import urlparse
+
 
 from block import Block
 from config import *
@@ -10,6 +12,7 @@ class Blockchain:
     def __init__(self, chain=None):
         self.unconfirmed_transactions = []
         self.chain = chain
+        self.nodes = set()
         if self.chain is None:
             self.chain = []
             self.create_genesis_block()
@@ -19,6 +22,32 @@ class Blockchain:
         genesis_block.hash = genesis_block.compute_hash()
         self.chain.append(genesis_block)
 
+    def register_node(self, address):
+        parsed_url = urlparse(address)
+        self.nodes.add(parsed_url.netloc)
+        
+    def resolve_conflicts(self):
+        neighbours = self.nodes
+        new_chain = None
+        
+        max_length = len(self.chain)
+        for node in neighbours:
+            response = requests.get(f'http://{node}/chain')
+            
+            if response.status_code == 200:
+                length = response.json()['length']
+                chain = response.json()['chain']
+                
+                if length > max_length and self.chain_validity(chain):
+                    max_length = length
+                    new_chain = chain
+        
+        if new_chain:
+            self.chain = new_chain
+            return True
+        
+        return False
+    
     @property
     def last_block(self):
         return self.chain[-1]
@@ -75,7 +104,7 @@ class Blockchain:
             block_hash = block.hash
             delattr(block, 'hash')
 
-            if not cls.is_valid_proof(block, block.hash) or previous_hash != block.previous_hash:
+            if not cls.is_valid_proof(block, block_hash) or previous_hash != block.previous_hash:
                 return False
 
             block.hash, previous_hash = block_hash, block_hash

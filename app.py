@@ -20,7 +20,6 @@ CORS(app)
 class AppContext:
     def __init__(self):
         self.blockchain = Blockchain()
-        self.peers = CONNECTED_NODE_ADDRESS
         self.posts = []
 
 
@@ -65,14 +64,20 @@ def get_chain():
     chain_data = []
     for block in app_context.blockchain.chain:
         chain_data.append(block.__dict__)
-    return jsonify(length=len(chain_data), chain=chain_data, peers=list(app_context.peers))
+    return jsonify(length=len(chain_data), chain=chain_data, nodes=list(app_context.blockchain.nodes))
+
+
+DATA_FILE = "./data_file/data_file.json"
 
 
 def save_chain():
-    file = os.environ.get('data_file')
-    if file is not None:
-        with open(file, 'w') as chain_file:
-            chain_file.write(json.dumps(get_chain().json))
+    try:
+        with open(DATA_FILE, 'w') as chain_file:
+            chain_data = get_chain().json
+            chain_data['nodes'] = list(app_context.blockchain.nodes)
+            chain_file.write(json.dumps(chain_data))
+    except Exception as e:
+        print(f"Error saving chain data: {e}")
 
 
 def exit_from_signal(signum, stack_frame):
@@ -83,19 +88,24 @@ atexit.register(save_chain)
 signal.signal(signal.SIGTERM, exit_from_signal)
 signal.signal(signal.SIGINT, exit_from_signal)
 
-file = os.environ.get('data_file')
 data = None
-if file is not None and os.path.exists(file):
-    with open(file, 'r') as chain_file:
-        raw_data = chain_file.read()
-        if raw_data:
+if os.path.exists(DATA_FILE):
+    try:
+        with open(DATA_FILE, 'r') as chain_file:
+            raw_data = chain_file.read()
             data = json.loads(raw_data)
+    except Exception as e:
+        print(f"Error reading data file: {e}")
 
 if data is None:
     app_context.blockchain = Blockchain()
 else:
-    app_context.blockchain = create_chain_dump(data['chain'])
-    app_context.peers.update(data['peers'])
+    try:
+        app_context.blockchain = create_chain_dump(data['chain'])
+        app_context.blockchain.nodes.update(data['nodes'])
+    except Exception as e:
+        print(f"Error creating blockchain from data: {e}")
+        app_context.blockchain = Blockchain()
 
 
 @app.route('/mine', methods=['GET'])
@@ -115,34 +125,30 @@ def get_pending():
     return jsonify(app_context.blockchain.unconfirmed_transactions)
 
 
-@app.route('/register', methods=['POST'])
-def register():
-    node_address = request.get_json()['node_address']
+@app.route('/nodes/register', methods=['POST'])
+def register_nodes():
+    values = request.json
 
-    if node_address not in CONNECTED_NODE_ADDRESS:
-        app_context.peers.add(node_address)
+    nodes = values.get('nodes')
+    if nodes is None:
+        return 'Error: Supply a valid list of nodes', 400
 
-    if not node_address:
-        return 'Invalid data', 404
+    for node in nodes:
+        app_context.blockchain.register_node(node)
 
-    data = {'node_address': request.host_url}
-    headers = {'Content-Type': 'application/json'}
-    response = requests.post(node_address + '/register',
-                             json=data, headers=headers)
+    response = {
+        'message': 'New node added',
+        'total_nodes': list(app_context.blockchain.nodes)
+    }
 
-    if not response.status_code == 200:
-        chain_dump = response.json()['chain']
-        app_context.blockchain = create_chain_dump(chain_dump)
-        app_context.peers.update(response.json()['peers'])
-        return 'Registration successful', 200
-    else:
-        return response.content, response.status_code
+    return jsonify(response), 201
 
 
+@app.route('/nodes/resolve', methods=['GET'])
 def consensus():
     longest_chain = None
     current_len = len(app_context.blockchain.chain)
-    for node in app_context.peers:
+    for node in app_context.blockchain.nodes:
         response = requests.get(f'{node}/chain')
         if response.status_code == 200:
             length = response.json()['length']
@@ -153,6 +159,7 @@ def consensus():
     if longest_chain:
         app_context.blockchain = create_chain_dump(longest_chain)
         return True
+
     return False
 
 
@@ -170,7 +177,7 @@ def verify_and_add_block():
 
 
 def announce_new_block(block):
-    for peer in app_context.peers:
+    for peer in app_context.blockchain.nodes:
         url = f'{peer}/add/block'
         headers = {'Content-Type': 'application/json'}
         try:
