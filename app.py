@@ -171,7 +171,7 @@ def verify_and_add_block():
 
 def announce_new_block(block):
     for peer in app_context.peers:
-        url = f'{peer}/add_block'
+        url = f'{peer}/add/block'
         headers = {'Content-Type': 'application/json'}
         try:
             requests.post(url, json=block.__dict__, headers=headers)
