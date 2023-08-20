@@ -44,7 +44,7 @@ def new_transaction():
 
     app_context.blockchain.add_transaction(tx_data)
 
-    return 'Success', 200
+    return jsonify('Success'), 200
 
 
 def create_chain_dump(chain_dump):
