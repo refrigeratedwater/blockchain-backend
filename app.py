@@ -8,7 +8,7 @@ import time
 import requests
 from flask import Flask, jsonify, request
 from flask_cors import CORS
-import ipfshttpclient
+import ipfs_api
 from block import Block
 from blockchain import Blockchain
 from config import *
@@ -31,14 +31,11 @@ def new_transaction():
     author = request.form.get('author')
     email = request.form.get('email')
     file = request.files.get('file')
-
+    client = ipfs_api.ipfshttpclient.connect(IPFS)
     if not author or not email or not file:
         return 'Invalid transaction data', 400
-
-    # client = ipfshttpclient.connect(f'{IPFS}/http')
-    # ipfs = client.add(file)
-    # cid = ipfs['Hash']
-
+    
+    
     tx_data = {'author': author, 'email': email, 'file': file.filename}
     tx_data['timestamp'] = time.time()
 
