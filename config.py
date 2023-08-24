@@ -1,5 +1,3 @@
 DIFFICULTY = 2
 
 CONNECTED_NODE_ADDRESS = {'http://127.0.0.1:5000'}
-
-IPFS = '/ip4/127.0.0.1/tcp/5001'

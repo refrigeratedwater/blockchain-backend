@@ -6,9 +6,9 @@ import sys
 import time
 
 import requests
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, Response
 from flask_cors import CORS
-import ipfs_api
+import ipfshttpclient
 from block import Block
 from blockchain import Blockchain
 from config import *
@@ -26,22 +26,77 @@ class AppContext:
 app_context = AppContext()
 
 
+def connect_to_ipfs():
+    try:
+        return ipfshttpclient.connect()
+    except ipfshttpclient.exceptions.ConnectionError as e:
+        print(e)
+        return None
+
+
+def add_to_ipfs(file):
+    api = connect_to_ipfs()
+    if api:
+        content = api.add(file)
+
+        return content['Hash'], content['Name']
+
+
+def get_from_ipfs(cid):
+    api = connect_to_ipfs()
+    if api:
+        return api.cat(cid)
+
+
 @app.route('/add/transaction', methods=['POST'])
 def new_transaction():
     author = request.form.get('author')
     email = request.form.get('email')
     file = request.files.get('file')
-    client = ipfs_api.ipfshttpclient.connect(IPFS)
-    if not author or not email or not file:
-        return 'Invalid transaction data', 400
-    
-    
-    tx_data = {'author': author, 'email': email, 'file': file.filename}
-    tx_data['timestamp'] = time.time()
 
-    app_context.blockchain.add_transaction(tx_data)
+    if not author:
+        return 'Invalid transaction data! Author is missing', 400
+    if not email:
+        return 'Invalid transaction data! Email is missing', 400
+    if not file:
+        return 'Invalid transaction data! File is missing', 400
 
-    return jsonify('Success'), 200
+    file_cid, file_name = add_to_ipfs(file)
+
+    if file_cid and file_name:
+
+        file_ext = file_name.rsplit('.', 1)[-1]
+        tx_data = {'author': author, 'email': email, 'file name': file.filename,
+                   'file': file_cid, 'ext': file_ext, 'timestamp': time.time()}
+        app_context.blockchain.add_transaction(tx_data)
+
+        return jsonify('Success'), 200
+    else:
+        return 'File upload has failed!', 500
+
+
+@app.route('/get/file/<cid>', methods=['GET'])
+def get_file(cid):
+    content = get_from_ipfs(cid)
+
+    tx = app_context.blockchain.get_transaction(cid)
+    if not tx:
+        return 'CID not found', 404
+
+    file_ext = tx['ext']
+
+    ext_to_mime = {
+        'doc': 'application/msword',
+        'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    }
+
+    if content and file_ext in ext_to_mime:
+        response = Response(content, content_type=ext_to_mime[file_ext])
+        response.headers[
+            'Content-Disposition'] = f'attachment; filename=downloaded_file.{file_ext}'
+        return response
+    else:
+        return 'Faailed to retrieve file', 415
 
 
 def create_chain_dump(chain_dump):
@@ -203,6 +258,7 @@ def fetch_posts():
 
 
 if __name__ == '__main__':
+
     app.run(debug=True)
 
     # load balancer
