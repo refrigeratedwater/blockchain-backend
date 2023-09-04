@@ -8,7 +8,7 @@ import time
 import requests
 from flask import Flask, jsonify, request, Response
 from flask_cors import CORS
-import ipfshttpclient
+import ipfshttpclient2
 from block import Block
 from blockchain import Blockchain
 from config import *
@@ -28,8 +28,8 @@ app_context = AppContext()
 
 def connect_to_ipfs():
     try:
-        return ipfshttpclient.connect()
-    except ipfshttpclient.exceptions.ConnectionError as e:
+        return ipfshttpclient2.connect()
+    except ipfshttpclient2.exceptions.ConnectionError as e:
         print(e)
         return None
 
@@ -38,14 +38,17 @@ def add_to_ipfs(file):
     api = connect_to_ipfs()
     if api:
         content = api.add(file)
-
-        return content['Hash'], content['Name']
+        api.close()
+        return content['Hash']
 
 
 def get_from_ipfs(cid):
     api = connect_to_ipfs()
     if api:
-        return api.cat(cid)
+        api.cat(cid)
+        api.close()
+
+        return api
 
 
 @app.route('/add/transaction', methods=['POST'])
@@ -53,7 +56,7 @@ def new_transaction():
     author = request.form.get('author')
     email = request.form.get('email')
     file = request.files.get('file')
-
+    file_name = request.form.get('fileName')
     if not author:
         return 'Invalid transaction data! Author is missing', 400
     if not email:
@@ -61,13 +64,11 @@ def new_transaction():
     if not file:
         return 'Invalid transaction data! File is missing', 400
 
-    file_cid, file_name = add_to_ipfs(file)
-
-    if file_cid and file_name:
-
+    file_cid = add_to_ipfs(file)
+    if file_cid:
         file_ext = file_name.rsplit('.', 1)[-1]
-        tx_data = {'author': author, 'email': email, 'file name': file.filename,
-                   'file': file_cid, 'ext': file_ext, 'timestamp': time.time()}
+        tx_data = {'author': author, 'email': email, 'name': file_name,
+                   'ext': file_ext, 'file': file_cid, 'timestamp': time.time()}
         app_context.blockchain.add_transaction(tx_data)
 
         return jsonify('Success'), 200
@@ -86,7 +87,6 @@ def get_file(cid):
     file_ext = tx['ext']
 
     ext_to_mime = {
-        'doc': 'application/msword',
         'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
     }
 
@@ -123,16 +123,19 @@ DATA_FILE = "./data_file/data_file.json"
 
 
 def save_chain():
-    try:
-        with open(DATA_FILE, 'w') as chain_file:
-            chain_data = get_chain().json
-            chain_data['nodes'] = list(app_context.blockchain.nodes)
-            chain_file.write(json.dumps(chain_data))
-    except Exception as e:
-        print(f"Error saving chain data: {e}")
+    with app.app_context():
+        try:
+            with open(DATA_FILE, 'w') as chain_file:
+                chain_data = get_chain().get_json()  # if this returns a response object
+                chain_data['nodes'] = list(app_context.blockchain.nodes)
+                chain_file.write(json.dumps(chain_data))
+        except Exception as e:
+            print(f"Error saving chain data: {e}")
 
 
 def exit_from_signal(signum, stack_frame):
+    with app.app_context():
+        save_chain()
     sys.exit(0)
 
 
@@ -179,17 +182,17 @@ def get_pending():
 
 @app.route('/nodes/register', methods=['POST'])
 def register_nodes():
-    values = request.json
+    values = request.get_json()
 
     nodes = values.get('nodes')
     if nodes is None:
-        return 'Error: Supply a valid list of nodes', 400
+        return 'Error: Please supply a valid list of nodes', 400
 
     for node in nodes:
         app_context.blockchain.register_node(node)
 
     response = {
-        'message': 'New node added',
+        'message': 'New nodes have been added',
         'total_nodes': list(app_context.blockchain.nodes)
     }
 
@@ -199,20 +202,25 @@ def register_nodes():
 @app.route('/nodes/resolve', methods=['GET'])
 def consensus():
     longest_chain = None
-    current_len = len(app_context.blockchain.chain)
+    current_length = len(app_context.blockchain.chain)
+
     for node in app_context.blockchain.nodes:
-        response = requests.get(f'{node}/chain')
+        response = requests.get(f'http://{node}/chain')
         if response.status_code == 200:
             length = response.json()['length']
             chain = response.json()['chain']
-            if length > current_len and app_context.blockchain.chain_validity(chain):
-                current_len = length
+            if length > current_length and app_context.blockchain.valid_chain(chain):
+                current_length = length
                 longest_chain = chain
-    if longest_chain:
-        app_context.blockchain = create_chain_dump(longest_chain)
-        return True
 
-    return False
+    if longest_chain:
+        app_context.blockchain.chain = longest_chain
+        response = {
+            'message': 'Our chain was replaced',
+            'new_chain': app_context.blockchain.chain
+        }
+
+        return jsonify(response), 200
 
 
 @app.route('/add/block', methods=['POST'])
@@ -258,8 +266,10 @@ def fetch_posts():
 
 
 if __name__ == '__main__':
-
-    app.run(debug=True)
+    try:
+        app.run(debug=True)
+    except KeyboardInterrupt:
+        print("Gracefully shutting down...")
 
     # load balancer
     # app.run(port=5001, debug=True)
