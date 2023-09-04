@@ -6,7 +6,7 @@ import sys
 import time
 
 import requests
-from flask import Flask, jsonify, request, Response
+from flask import Flask, jsonify, request, make_response
 from flask_cors import CORS
 import ipfshttpclient2
 from block import Block
@@ -45,10 +45,10 @@ def add_to_ipfs(file):
 def get_from_ipfs(cid):
     api = connect_to_ipfs()
     if api:
-        api.cat(cid)
+        content = api.cat(cid)
         api.close()
 
-        return api
+        return content
 
 
 @app.route('/add/transaction', methods=['POST'])
@@ -78,25 +78,28 @@ def new_transaction():
 
 @app.route('/get/file/<cid>', methods=['GET'])
 def get_file(cid):
-    content = get_from_ipfs(cid)
+    content = get_from_ipfs(cid)  # This should return bytes
 
     tx = app_context.blockchain.get_transaction(cid)
     if not tx:
         return 'CID not found', 404
 
-    file_ext = tx['ext']
+    file_ext = tx.get('ext')
+    file_name = tx.get('name')
+    print(file_name)
 
     ext_to_mime = {
-        'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'doc': 'application/msword',
+        'pdf': 'application/pdf'
     }
 
-    if content and file_ext in ext_to_mime:
-        response = Response(content, content_type=ext_to_mime[file_ext])
-        response.headers[
-            'Content-Disposition'] = f'attachment; filename=downloaded_file.{file_ext}'
-        return response
-    else:
-        return 'Faailed to retrieve file', 415
+    mime_type = ext_to_mime.get(file_ext, 'application/octet-stream')
+
+    response = make_response(content)
+    response.headers.set('Content-Type', mime_type)
+    response.headers.set('Content-Disposition', f'attachment; filename={file_name}')
+    return response, 200
 
 
 def create_chain_dump(chain_dump):
