@@ -6,9 +6,10 @@ import sys
 import time
 
 import requests
+import ipfshttpclient2
 from flask import Flask, jsonify, request, make_response
 from flask_cors import CORS
-import ipfshttpclient2
+from ipfs_dict_chain import IPFSDict, IPFSDictChain
 from block import Block
 from blockchain import Blockchain
 from config import *
@@ -66,9 +67,8 @@ def new_transaction():
 
     file_cid = add_to_ipfs(file)
     if file_cid:
-        file_ext = file_name.rsplit('.', 1)[-1]
         tx_data = {'author': author, 'email': email, 'name': file_name,
-                   'ext': file_ext, 'file': file_cid, 'timestamp': time.time()}
+                   'file': file_cid, 'timestamp': time.time()}
         app_context.blockchain.add_transaction(tx_data)
 
         return jsonify('Success'), 200
@@ -78,15 +78,14 @@ def new_transaction():
 
 @app.route('/get/file/<cid>', methods=['GET'])
 def get_file(cid):
-    content = get_from_ipfs(cid)  # This should return bytes
+    content = get_from_ipfs(cid)
 
     tx = app_context.blockchain.get_transaction(cid)
     if not tx:
         return 'CID not found', 404
 
-    file_ext = tx.get('ext')
     file_name = tx.get('name')
-    print(file_name)
+    file_ext = file_name.rsplit('.', 1)[-1]
 
     ext_to_mime = {
         'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -98,7 +97,8 @@ def get_file(cid):
 
     response = make_response(content)
     response.headers.set('Content-Type', mime_type)
-    response.headers.set('Content-Disposition', f'attachment; filename={file_name}')
+    response.headers.set('Content-Disposition',
+                         f'attachment; filename={file_name}')
     return response, 200
 
 
