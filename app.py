@@ -22,6 +22,8 @@ class AppContext:
     def __init__(self):
         self.blockchain = Blockchain()
         self.posts = []
+        self.file_chain = IPFSDictChain()
+        self.initial_chain = self.file_chain.save()
 
 
 app_context = AppContext()
@@ -51,13 +53,17 @@ def get_from_ipfs(cid):
 
         return content
 
-
+@app.route('/prev', methods=['GET'])
+def prev():
+    return jsonify(app_context.file_chain.items())
+    
 @app.route('/add/transaction', methods=['POST'])
 def new_transaction():
     author = request.form.get('author')
     email = request.form.get('email')
     file = request.files.get('file')
     file_name = request.form.get('fileName')
+    prev_file_cid = request.form.get('prevCID')
     if not author:
         return 'Invalid transaction data! Author is missing', 400
     if not email:
@@ -67,8 +73,21 @@ def new_transaction():
 
     file_cid = add_to_ipfs(file)
     if file_cid:
+        if prev_file_cid:
+            app_context.file_chain[file_cid] = {
+                'file_name': file_name, 'file': file_cid, 'previous_version': prev_file_cid}
+        else:
+            app_context.file_chain[file_cid] = {
+                'file_name': file_name, 'file': file_cid}
+
+        chain_cid = app_context.file_chain.save()
+
         tx_data = {'author': author, 'email': email, 'name': file_name,
-                   'file': file_cid, 'timestamp': time.time()}
+                   'file': file_cid, 'chain': chain_cid, 'timestamp': time.time()}
+
+        if prev_file_cid:
+            tx_data['previous_file'] = prev_file_cid
+
         app_context.blockchain.add_transaction(tx_data)
 
         return jsonify('Success'), 200
