@@ -9,7 +9,7 @@ import requests
 import ipfshttpclient2
 from flask import Flask, jsonify, request, make_response
 from flask_cors import CORS
-from ipfs_dict_chain import IPFSDict, IPFSDictChain
+from ipfs_dict_chain import IPFSDictChain
 from block import Block
 from blockchain import Blockchain
 from config import *
@@ -22,8 +22,8 @@ class AppContext:
     def __init__(self):
         self.blockchain = Blockchain()
         self.posts = []
-        self.file_chain = IPFSDictChain()
-        self.initial_chain = self.file_chain.save()
+        self.files = {}
+        self.author_files = {}
 
 
 app_context = AppContext()
@@ -53,10 +53,7 @@ def get_from_ipfs(cid):
 
         return content
 
-@app.route('/prev', methods=['GET'])
-def prev():
-    return jsonify(app_context.file_chain.items())
-    
+
 @app.route('/add/transaction', methods=['POST'])
 def new_transaction():
     author = request.form.get('author')
@@ -64,6 +61,7 @@ def new_transaction():
     file = request.files.get('file')
     file_name = request.form.get('fileName')
     prev_file_cid = request.form.get('prevCID')
+
     if not author:
         return 'Invalid transaction data! Author is missing', 400
     if not email:
@@ -73,14 +71,21 @@ def new_transaction():
 
     file_cid = add_to_ipfs(file)
     if file_cid:
-        if prev_file_cid:
-            app_context.file_chain[file_cid] = {
-                'file_name': file_name, 'file': file_cid, 'previous_version': prev_file_cid}
-        else:
-            app_context.file_chain[file_cid] = {
-                'file_name': file_name, 'file': file_cid}
+        if file_name not in app_context.files:
+            app_context.files[file_name] = IPFSDictChain()
 
-        chain_cid = app_context.file_chain.save()
+        metadata = {'file_name': file_name, 'file': file_cid}
+
+        if author not in app_context.author_files:
+            app_context.author_files[author] = []
+
+        app_context.author_files[author].append(file_name)
+
+        if prev_file_cid:
+            metadata['previous_version'] = prev_file_cid
+
+        app_context.files[file_name][file_cid] = metadata
+        chain_cid = app_context.files[file_name].save()
 
         tx_data = {'author': author, 'email': email, 'name': file_name,
                    'file': file_cid, 'chain': chain_cid, 'timestamp': time.time()}
@@ -93,6 +98,24 @@ def new_transaction():
         return jsonify('Success'), 200
     else:
         return 'File upload has failed!', 500
+
+# @app.route('/prev/<file_name>', methods=['GET'])
+# def prev(file_name):
+#     if file_name not in app_context.files:
+#         return 'File not found', 404
+
+#     return jsonify(app_context.files[file_name].items())
+
+
+@app.route('/author/<author>', methods=['GET'])
+def author(author):
+    if author not in app_context.author_files:
+        return 'Author not found', 404
+
+    return jsonify({
+        "name": author,
+        "files": app_context.author_files[author]
+    })
 
 
 @app.route('/get/file/<cid>', methods=['GET'])
