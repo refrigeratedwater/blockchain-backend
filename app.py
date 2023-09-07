@@ -74,19 +74,19 @@ def new_transaction():
         if file_name not in app_context.files:
             app_context.files[file_name] = IPFSDictChain()
 
-        metadata = {'file_name': file_name, 'file': file_cid}
+        metadata = {'file_name': file_name, 'version': file_cid}
 
         if author not in app_context.author_files:
             app_context.author_files[author] = []
 
-        app_context.author_files[author].append(file_name)
+        app_context.author_files[author].append(metadata)
 
         if prev_file_cid:
             metadata['previous_version'] = prev_file_cid
 
         app_context.files[file_name][file_cid] = metadata
         chain_cid = app_context.files[file_name].save()
-
+        
         tx_data = {'author': author, 'email': email, 'name': file_name,
                    'file': file_cid, 'chain': chain_cid, 'timestamp': time.time()}
 
@@ -107,14 +107,21 @@ def new_transaction():
 #     return jsonify(app_context.files[file_name].items())
 
 
-@app.route('/author/<author>', methods=['GET'])
-def author(author):
+@app.route('/authors', methods=['GET'])
+def auhtor():
+    return jsonify(app_context.author_files)
+
+
+@app.route('/author/files/<author>', methods=['GET'])
+def author_files(author):
     if author not in app_context.author_files:
         return 'Author not found', 404
 
+    files = app_context.author_files[author]
+
     return jsonify({
-        "name": author,
-        "files": app_context.author_files[author]
+        "author": author,
+        "file": files
     })
 
 
