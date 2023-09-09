@@ -60,7 +60,6 @@ def new_transaction():
     email = request.form.get('email')
     file = request.files.get('file')
     file_name = request.form.get('fileName')
-    prev_file_cid = request.form.get('prevCID')
 
     if not author:
         return 'Invalid transaction data! Author is missing', 400
@@ -74,28 +73,54 @@ def new_transaction():
         if file_name not in app_context.files:
             app_context.files[file_name] = IPFSDictChain()
 
-        metadata = {'file_name': file_name, 'version': file_cid}
+        version_chain = app_context.files[file_name]
+        prev_file_cid = version_chain._cid if version_chain._cid else None
+        prev_chain_cid = version_chain.previous_cid if version_chain.previous_cid else None
+
+        version_metadata = {
+            'name': file_name,
+            'cids': {
+                'current': file_cid
+            }
+        }
+        if prev_file_cid:
+            version_metadata['cids']['previous'] = prev_file_cid
+
+        version_chain[file_cid] = version_metadata
+        version_chain.save()
 
         if author not in app_context.author_files:
             app_context.author_files[author] = []
 
-        app_context.author_files[author].append(metadata)
+        app_context.author_files[author].append(version_metadata)
 
+        file_info = {
+            'name': file_name,
+            'cids': {
+                'current': file_cid
+            }
+        }
         if prev_file_cid:
-            metadata['previous_version'] = prev_file_cid
+            file_info['cids']['previous'] = prev_file_cid
 
-        app_context.files[file_name][file_cid] = metadata
-        chain_cid = app_context.files[file_name].save()
-        
-        tx_data = {'author': author, 'email': email, 'name': file_name,
-                   'file': file_cid, 'chain': chain_cid, 'timestamp': time.time()}
+        tx_data = {
+            'author': author,
+            'email': email,
+            'file_info': file_info,
+            'chain': {
+                'current_chain_cid': version_chain._cid,
+                'versions': version_chain,
+            },
+            'timestamp': time.time()
+        }
+        print(tx_data['chain']['versions'])
 
-        if prev_file_cid:
-            tx_data['previous_file'] = prev_file_cid
+        if prev_chain_cid:
+            tx_data['chain']['previous_chain_cid'] = prev_chain_cid
 
         app_context.blockchain.add_transaction(tx_data)
 
-        return jsonify('Success'), 200
+        return jsonify(tx_data), 200
     else:
         return 'File upload has failed!', 500
 
@@ -115,13 +140,21 @@ def auhtor():
 @app.route('/author/files/<author>', methods=['GET'])
 def author_files(author):
     if author not in app_context.author_files:
-        return 'Author not found', 404
+        return author, 404
 
-    files = app_context.author_files[author]
+    files_data = app_context.author_files[author]
+
+    transformed_files = []
+    for file_data in files_data:
+        file_info = {
+            'name': file_data['name'],
+            'cids': file_data['cids']
+        }
+        transformed_files.append(file_info)
 
     return jsonify({
         "author": author,
-        "file": files
+        "files": transformed_files
     })
 
 
