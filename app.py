@@ -70,23 +70,22 @@ def new_transaction():
 
     file_cid = add_to_ipfs(file)
     if file_cid:
-        if file_name not in app_context.files:
-            app_context.files[file_name] = IPFSDictChain()
+        # Check if the file exists in the version chain
+        if file_name in app_context.files:
+            version_chain = app_context.files[file_name]
+            prev_file_cid = version_chain[file_name]['current'] if 'current' in version_chain[file_name] else None
+        else:
+            version_chain = IPFSDictChain()
+            prev_file_cid = None
+            app_context.files[file_name] = version_chain
 
-        version_chain = app_context.files[file_name]
-        prev_file_cid = version_chain._cid if version_chain._cid else None
-        prev_chain_cid = version_chain.previous_cid if version_chain.previous_cid else None
-
+        # File version metadata
         version_metadata = {
-            'name': file_name,
-            'cids': {
-                'current': file_cid
-            }
+            'current': file_cid,
+            'previous': prev_file_cid
         }
-        if prev_file_cid:
-            version_metadata['cids']['previous'] = prev_file_cid
 
-        version_chain[file_cid] = version_metadata
+        version_chain[file_name] = version_metadata
         version_chain.save()
 
         if author not in app_context.author_files:
@@ -94,29 +93,19 @@ def new_transaction():
 
         app_context.author_files[author].append(version_metadata)
 
-        file_info = {
-            'name': file_name,
-            'cids': {
-                'current': file_cid
-            }
-        }
-        if prev_file_cid:
-            file_info['cids']['previous'] = prev_file_cid
+        version_metadata['name'] = file_name
 
         tx_data = {
             'author': author,
             'email': email,
-            'file_info': file_info,
+            'file_info': version_metadata,
             'chain': {
-                'current_chain_cid': version_chain._cid,
-                'versions': version_chain,
+                'versions': version_chain._cid,
             },
             'timestamp': time.time()
         }
-        print(tx_data['chain']['versions'])
 
-        if prev_chain_cid:
-            tx_data['chain']['previous_chain_cid'] = prev_chain_cid
+        print(tx_data)
 
         app_context.blockchain.add_transaction(tx_data)
 
@@ -148,9 +137,14 @@ def author_files(author):
     for file_data in files_data:
         file_info = {
             'name': file_data['name'],
-            'cids': file_data['cids']
+            'cids': {
+                'current': file_data['current'],
+                'previous': file_data['previous']},
         }
+
         transformed_files.append(file_info)
+
+    print(transformed_files)
 
     return jsonify({
         "author": author,
@@ -166,19 +160,10 @@ def get_file(cid):
     if not tx:
         return 'CID not found', 404
 
-    file_name = tx.get('name')
-    file_ext = file_name.rsplit('.', 1)[-1]
-
-    ext_to_mime = {
-        'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        'doc': 'application/msword',
-        'pdf': 'application/pdf'
-    }
-
-    mime_type = ext_to_mime.get(file_ext, 'application/octet-stream')
+    file_name = tx.get('file_info').get('name')
 
     response = make_response(content)
-    response.headers.set('Content-Type', mime_type)
+    response.headers.set('Content-Type', 'application/octet-stream')
     response.headers.set('Content-Disposition',
                          f'attachment; filename={file_name}')
     return response, 200

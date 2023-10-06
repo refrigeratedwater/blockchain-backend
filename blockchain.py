@@ -84,7 +84,7 @@ class Blockchain:
     def get_transaction(self, cid):
         for block in self.chain:
             for tx in block.transactions:
-                if tx.get('file') == cid:
+                if tx.get('file_info').get('current') == cid:
                     return tx
 
         return None
