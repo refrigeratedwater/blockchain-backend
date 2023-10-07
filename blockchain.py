@@ -1,8 +1,8 @@
 import time
 import requests
+import random
 
 from urllib.parse import urlparse
-
 
 from block import Block
 from config import *
@@ -25,45 +25,45 @@ class Blockchain:
     def register_node(self, address):
         parsed_url = urlparse(address)
         self.nodes.add(parsed_url.netloc)
-        
+
     def valid_chain(self, chain):
         last_block = [0]
         current_index = 1
-        
+
         while current_index < len(chain):
             block = chain[current_index]
             if block['previous_hash'] != self.hash(last_block):
                 return False
-            
+
             if not self.is_valid_proof(last_block['proof'], block['proof']):
                 return False
-            
+
             last_block = block
             current_index += 1
-            
+
         return True
 
     def resolve_conflicts(self):
         neighbours = self.nodes
         new_chain = None
-        
+
         max_length = self.chain
-        
+
         for node in neighbours:
             response = requests.get(f'http://{node}/chain')
-            
+
             if response.status_code == 200:
                 length = response.json()['length']
                 chain = response.json()['chain']
-                
+
                 if length > max_length and self.valid_chain(chain):
                     max_length = length
                     new_chain = chain
-                    
+
         if new_chain:
             self.chain = new_chain
             return True
-        
+
         return False
 
     @property
@@ -76,7 +76,7 @@ class Blockchain:
 
         computed_hash = block.compute_hash()
         while not computed_hash.startswith('0' * DIFFICULTY):
-            block.nonce += 1
+            block.nonce = random.randint(BOUNDARY[0], BOUNDARY[1])
             computed_hash = block.compute_hash()
 
         return computed_hash
@@ -88,14 +88,13 @@ class Blockchain:
                     return tx
 
         return None
-    
+
     def get_all_authors(self):
         authors = set()
-        
         for block in self.chain:
             for tx in block.transactions:
                 authors.add(tx.get('author'))
-        
+
         return list(authors)
 
     def add_block(self, block, proof):
