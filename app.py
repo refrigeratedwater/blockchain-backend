@@ -5,6 +5,8 @@ import signal
 import sys
 import time
 
+from datetime import datetime
+
 import requests
 import ipfshttpclient2
 from flask import Flask, jsonify, request, make_response
@@ -52,7 +54,6 @@ def get_from_ipfs(cid):
         api.close()
 
         return content
-
 
 @app.route('/add/transaction', methods=['POST'])
 def new_transaction():
@@ -102,10 +103,8 @@ def new_transaction():
             'chain': {
                 'versions': version_chain._cid,
             },
-            'timestamp': time.time()
+            'timestamp': convert_time(time.time())
         }
-
-        print(tx_data)
 
         app_context.blockchain.add_transaction(tx_data)
 
