@@ -81,13 +81,22 @@ class Blockchain:
 
         return computed_hash
 
-    def get_transaction(self, cid):
+    def get_cid(self, cid):
         for block in self.chain:
             for tx in block.transactions:
                 if tx.get('file_info').get('current') == cid:
                     return tx
 
         return None
+    
+    def get_all_authors(self):
+        authors = set()
+        
+        for block in self.chain:
+            for tx in block.transactions:
+                authors.add(tx.get('author'))
+        
+        return list(authors)
 
     def add_block(self, block, proof):
         previous_hash = self.last_block.hash

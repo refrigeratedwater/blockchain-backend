@@ -122,8 +122,14 @@ def new_transaction():
 
 
 @app.route('/authors', methods=['GET'])
-def auhtor():
-    return jsonify(app_context.author_files)
+def authors():
+    authors = app_context.blockchain.get_all_authors()
+    
+    response = {
+        'authorList': authors
+    }
+    
+    return jsonify(response), 200
 
 
 @app.route('/author/files/<author>', methods=['GET'])
@@ -143,9 +149,7 @@ def author_files(author):
         }
 
         transformed_files.append(file_info)
-
-    print(transformed_files)
-
+        
     return jsonify({
         "author": author,
         "files": transformed_files
@@ -156,7 +160,7 @@ def author_files(author):
 def get_file(cid):
     content = get_from_ipfs(cid)
 
-    tx = app_context.blockchain.get_transaction(cid)
+    tx = app_context.blockchain.get_cid(cid)
     if not tx:
         return 'CID not found', 404
 
